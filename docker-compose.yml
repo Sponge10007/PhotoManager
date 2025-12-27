@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  # MongoDB database
+  mongodb:
+    image: mongo:6.0
+    container_name: photoms-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password123
+      MONGO_INITDB_DATABASE: photoms
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - photoms-network
+
+  # Backend server
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: photoms-server
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - MONGO_URI=mongodb://admin:password123@mongodb:27017/photoms?authSource=admin
+      - DATABASE_NAME=photoms
+      - JWT_SECRET=your-secret-key-change-in-production
+      - UPLOAD_DIR=/uploads
+      - CLIENT_URL=http://localhost:5173
+    volumes:
+      - uploads_data:/uploads
+    depends_on:
+      - mongodb
+    networks:
+      - photoms-network
+
+  # Frontend client (optional, for production)
+  # client:
+  #   build:
+  #     context: ./client
+  #     dockerfile: Dockerfile
+  #   container_name: photoms-client
+  #   restart: unless-stopped
+  #   ports:
+  #     - "80:80"
+  #   depends_on:
+  #     - server
+  #   networks:
+  #     - photoms-network
+
+volumes:
+  mongodb_data:
+  uploads_data:
+
+networks:
+  photoms-network:
+    driver: bridge
