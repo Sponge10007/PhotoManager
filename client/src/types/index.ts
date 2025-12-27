@@ -48,7 +48,7 @@ export interface Photo {
   size: number
   mimeType: string
   exif?: ExifInfo
-  tags: Tag[]
+  tags?: Tag[]
   createdAt: string
   updatedAt: string
 }

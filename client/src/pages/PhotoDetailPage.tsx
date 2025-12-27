@@ -1,21 +1,42 @@
 import { useParams, useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { photosApi } from '@/api/photos'
-import { 
-  ChevronLeft, Calendar, Camera, Cpu, 
-  MapPin, Tag, Trash2, Edit3, Download, 
+import {
+  ChevronLeft, Calendar, Camera, Cpu,
+  MapPin, Tag, Trash2, Edit3, Download,
   Info, Maximize2, Clock, Layers
 } from 'lucide-react'
 
 export default function PhotoDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
 
   const { data: photo, isLoading } = useQuery({
     queryKey: ['photo', id],
     queryFn: () => photosApi.getPhotoById(id!),
     enabled: !!id,
   })
+
+  // 删除照片mutation
+  const deleteMutation = useMutation({
+    mutationFn: () => photosApi.deletePhoto(id!),
+    onSuccess: () => {
+      // 删除成功后，清除缓存并跳转回首页
+      queryClient.invalidateQueries({ queryKey: ['photos'] })
+      navigate('/')
+    },
+    onError: (error: any) => {
+      alert(error.response?.data?.error || '删除失败，请重试')
+    },
+  })
+
+  // 处理删除
+  const handleDelete = () => {
+    if (window.confirm('确定要删除这张图片吗？此操作无法撤销！')) {
+      deleteMutation.mutate()
+    }
+  }
 
   if (isLoading) {
     return (
@@ -77,7 +98,10 @@ export default function PhotoDetailPage() {
                 <button className="p-2 hover:bg-secondary rounded-lg transition-colors text-muted-foreground hover:text-foreground">
                   <Edit3 size={18} />
                 </button>
-                <button className="p-2 hover:bg-destructive/10 rounded-lg transition-colors text-muted-foreground hover:text-destructive">
+                <button onClick={handleDelete}
+                        disabled={deleteMutation.isPending}
+                        className="p-2 hover:bg-destructive/10 rounded-lg transition-colors text-muted-foreground hover:text-destructive disabled:opacity-50"
+                      >
                   <Trash2 size={18} />
                 </button>
               </div>
@@ -109,7 +133,7 @@ export default function PhotoDetailPage() {
               <Tag size={16} /> 标签
             </h3>
             <div className="flex flex-wrap gap-2">
-              {photo.tags.length > 0 ? (
+              {photo.tags && photo.tags.length > 0 ? (
                 photo.tags.map((tag, index) => (
                   <span
                     key={index}
@@ -136,16 +160,16 @@ export default function PhotoDetailPage() {
                 <Info size={16} /> 拍摄参数 (EXIF)
               </h3>
               <div className="space-y-4">
-                <ExifRow icon={<Camera size={16} />} label="设备" value={photo.exif.cameraModel ? `${photo.exif.cameraMake} ${photo.exif.cameraModel}` : '未知设备'} />
-                <ExifRow icon={<Layers size={16} />} label="镜头" value={photo.exif.lensModel || '未知镜头'} />
+                <ExifRow icon={<Camera size={16} />} label="设备" value={photo.exif.model ? `${photo.exif.make || ''} ${photo.exif.model}`.trim() : '未知设备'} />
+                <ExifRow icon={<Layers size={16} />} label="镜头" value={photo.exif.lens || '未知镜头'} />
                 <div className="grid grid-cols-2 gap-4 pt-2">
                   <ExifItem label="ISO" value={photo.exif.iso} />
                   <ExifItem label="光圈" value={photo.exif.aperture ? `f/${photo.exif.aperture}` : '-'} />
                   <ExifItem label="快门" value={photo.exif.shutterSpeed} />
                   <ExifItem label="焦距" value={photo.exif.focalLength ? `${photo.exif.focalLength}mm` : '-'} />
                 </div>
-                {photo.exif.latitude !== 0 && (
-                  <ExifRow icon={<MapPin size={16} />} label="地点" value={`${photo.exif.latitude.toFixed(4)}, ${photo.exif.longitude.toFixed(4)}`} />
+                {photo.exif.gps && photo.exif.gps.latitude !== 0 && (
+                  <ExifRow icon={<MapPin size={16} />} label="地点" value={`${photo.exif.gps.latitude.toFixed(4)}, ${photo.exif.gps.longitude.toFixed(4)}`} />
                 )}
                 {photo.exif.takenAt && (
                   <ExifRow icon={<Calendar size={16} />} label="拍摄日期" value={new Date(photo.exif.takenAt).toLocaleString()} />

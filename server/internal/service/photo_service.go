@@ -12,6 +12,7 @@ import (
 	"photoms/internal/models"
 	"photoms/internal/repository"
 	"photoms/pkg/config"
+	"photoms/pkg/utils"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -72,7 +73,18 @@ func (s *PhotoService) UploadPhoto(ctx context.Context, userID primitive.ObjectI
 		return nil, err
 	}
 
-	// 3. 构造数据库模型
+	// 提取EXIF信息
+	exifInfo, _ := utils.ExtractExif(uploadPath)
+
+	// 生成缩略图
+	thumbFileName := fmt.Sprintf("thumb_%s", newFileName)
+	thumbPath := filepath.Join(s.config.UploadDir, thumbFileName)
+	if err := utils.GenerateThumbnail(uploadPath, thumbPath, 400); err != nil {
+		fmt.Printf("Warning: failed to generate thumbnail: %v\n", err)
+		thumbFileName = newFileName // 失败时使用原图
+	}
+
+	// 构造数据库模型
 	photo := &models.Photo{
 		UserID:    userID,
 		Title:     file.Filename,
@@ -82,6 +94,7 @@ func (s *PhotoService) UploadPhoto(ctx context.Context, userID primitive.ObjectI
 		Hash:      fileHash,
 		Size:      file.Size,
 		MimeType:  file.Header.Get("Content-Type"),
+		Exif:      exifInfo,
 	}
 
 	if err := s.repo.Create(ctx, photo); err != nil {
@@ -89,4 +102,93 @@ func (s *PhotoService) UploadPhoto(ctx context.Context, userID primitive.ObjectI
 	}
 
 	return photo, nil
+}
+
+func (s *PhotoService) ListPhotos(ctx context.Context, userID primitive.ObjectID, page, limit int64) ([]*models.Photo, int64, error) {
+	return s.repo.FindByUserID(ctx, userID, page, limit)
+}
+
+// GetPhotoByID 获取单张图片详情（验证用户所有权）
+func (s *PhotoService) GetPhotoByID(ctx context.Context, photoID, userID primitive.ObjectID) (*models.Photo, error) {
+	photo, err := s.repo.FindByID(ctx, photoID)
+	if err != nil {
+		return nil, fmt.Errorf("photo not found: %w", err)
+	}
+
+	// 验证用户所有权
+	if photo.UserID != userID {
+		return nil, fmt.Errorf("unauthorized: photo belongs to another user")
+	}
+
+	return photo, nil
+}
+
+// UpdatePhoto 更新图片信息（仅允许更新标题、描述、标签）
+func (s *PhotoService) UpdatePhoto(ctx context.Context, photoID, userID primitive.ObjectID, updates map[string]interface{}) (*models.Photo, error) {
+	// 先验证所有权
+	photo, err := s.GetPhotoByID(ctx, photoID, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 构造更新数据（只允许更新特定字段）
+	allowedFields := map[string]bool{
+		"title":       true,
+		"description": true,
+		"tags":        true,
+	}
+
+	updateData := make(map[string]interface{})
+	for key, value := range updates {
+		if allowedFields[key] {
+			updateData[key] = value
+		}
+	}
+
+	// 如果没有有效的更新字段，直接返回原数据
+	if len(updateData) == 0 {
+		return photo, nil
+	}
+
+	// 执行更新
+	if err := s.repo.Update(ctx, photoID, updateData); err != nil {
+		return nil, fmt.Errorf("failed to update photo: %w", err)
+	}
+
+	// 重新查询返回最新数据
+	return s.repo.FindByID(ctx, photoID)
+}
+
+// DeletePhoto 删除图片（包括文件和数据库记录）
+func (s *PhotoService) DeletePhoto(ctx context.Context, photoID, userID primitive.ObjectID) error {
+	// 先验证所有权
+	photo, err := s.GetPhotoByID(ctx, photoID, userID)
+	if err != nil {
+		return err
+	}
+
+	// 删除磁盘文件
+	if photo.FileName != "" {
+		filePath := filepath.Join(s.config.UploadDir, photo.FileName)
+		if err := os.Remove(filePath); err != nil {
+			// 文件删除失败不阻塞数据库删除，仅记录错误
+			fmt.Printf("Warning: failed to delete file %s: %v\n", filePath, err)
+		}
+	}
+
+	// 删除缩略图（如果与原图不同）
+	if photo.ThumbPath != "" && photo.ThumbPath != photo.Path {
+		thumbFileName := filepath.Base(photo.ThumbPath)
+		thumbPath := filepath.Join(s.config.UploadDir, thumbFileName)
+		if err := os.Remove(thumbPath); err != nil {
+			fmt.Printf("Warning: failed to delete thumbnail %s: %v\n", thumbPath, err)
+		}
+	}
+
+	// 删除数据库记录
+	if err := s.repo.Delete(ctx, photoID); err != nil {
+		return fmt.Errorf("failed to delete photo from database: %w", err)
+	}
+
+	return nil
 }

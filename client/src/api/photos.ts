@@ -19,8 +19,8 @@ export const photosApi = {
     api.get<any, Photo>(`/photos/${id}`),
 
   updatePhoto: (id: string, data: UpdatePhotoRequest) =>
-    api.put<any, { status: string }>(`/photos/${id}`, data),
+    api.put<any, Photo>(`/photos/${id}`, data),
 
   deletePhoto: (id: string) =>
-    api.delete<any, { status: string }>(`/photos/${id}`),
+    api.delete<any, { message: string }>(`/photos/${id}`),
 }

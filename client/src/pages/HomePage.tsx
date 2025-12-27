@@ -122,7 +122,7 @@ export default function HomePage() {
         <div className="flex-1 overflow-y-auto p-6">
           {isLoading ? (
             <div className="flex items-center justify-center h-full text-muted-foreground">加载中...</div>
-          ) : photosData?.data.length === 0 ? (
+          ) : (photosData?.data?.length ?? 0) === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-muted-foreground opacity-50">
               <ImageIcon size={48} strokeWidth={1} className="mb-4" />
               <p>暂无图片</p>
