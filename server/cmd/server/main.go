@@ -12,11 +12,16 @@ import (
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 func main() {
+	if err := godotenv.Load(); err != nil {
+		log.Println("No .env file found, using system environment variables")
+	}
+
 	// Load configuration
 	cfg := config.Load()
 
@@ -44,10 +49,11 @@ func main() {
 
 	// Initialize services
 	authService := service.NewAuthService(userRepo, cfg)
+	photoService := service.NewPhotoService(photoRepo, cfg) // 注入 photoRepo
 
 	// Initialize controllers
 	authController := controller.NewAuthController(authService)
-	photoController := controller.NewPhotoController()
+	photoController := controller.NewPhotoController(photoService)
 
 	// Setup Gin router
 	router := gin.Default()

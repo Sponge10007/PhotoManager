@@ -1,20 +1,44 @@
 package controller
 
 import (
+	"net/http"
+	"photoms/internal/service"
+
 	"github.com/gin-gonic/gin"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type PhotoController struct {
-	// TODO: Add photo service
+	photoService *service.PhotoService
 }
 
-func NewPhotoController() *PhotoController {
-	return &PhotoController{}
+func NewPhotoController(photoService *service.PhotoService) *PhotoController {
+	return &PhotoController{photoService: photoService}
 }
 
 func (ctrl *PhotoController) Upload(c *gin.Context) {
-	// TODO: Implement upload
-	c.JSON(200, gin.H{"message": "Upload endpoint - to be implemented"})
+	file, err := c.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No file uploaded"})
+		return
+	}
+
+	// 从 JWT 中间件获取用户 ID
+	userIDStr, exists := c.Get("userId")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	userID, _ := primitive.ObjectIDFromHex(userIDStr.(string))
+
+	photo, err := ctrl.photoService.UploadPhoto(c.Request.Context(), userID, file)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, photo)
 }
 
 func (ctrl *PhotoController) List(c *gin.Context) {

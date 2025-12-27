@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
 import { authApi } from '@/api/auth'
 import { useAuthStore } from '@/store/authStore'
+import { Mail, Lock, UserPlus, Camera, User, ArrowRight } from 'lucide-react'
 
 export default function RegisterPage() {
   const navigate = useNavigate()
@@ -18,7 +19,8 @@ export default function RegisterPage() {
       navigate('/')
     },
     onError: (error: any) => {
-      alert(error.response?.data?.message || 'Registration failed')
+      const errorMsg = error.response?.data?.message || '注册失败，请检查填写内容'
+      alert(errorMsg)
     },
   })
 
@@ -28,78 +30,124 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="max-w-md w-full space-y-8 p-8 bg-white rounded-lg shadow">
-        <div>
-          <h2 className="text-center text-3xl font-bold">PhotoMS</h2>
-          <p className="mt-2 text-center text-sm text-gray-600">
-            Create your account
+    <div className="min-h-screen flex bg-background text-foreground overflow-hidden">
+      {/* 左侧：视觉展示区域 (与登录页保持完全一致) */}
+      <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-primary">
+        <div className="absolute inset-0 bg-black/30 z-10" />
+        <img 
+          src="https://images.unsplash.com/photo-1493238792000-8113da705763?auto=format&fit=crop&q=80&w=2070" 
+          alt="Photography Background" 
+          className="absolute inset-0 w-full h-full object-cover transform scale-105"
+        />
+        <div className="relative z-20 m-auto p-12 text-white">
+          <div className="flex items-center gap-4 mb-6">
+            <div className="p-3 bg-white/20 backdrop-blur-xl rounded-2xl shadow-2xl">
+              <Camera size={40} />
+            </div>
+            <h1 className="text-5xl font-black tracking-tighter">PhotoMS</h1>
+          </div>
+          <p className="text-xl text-white/90 max-w-md leading-relaxed font-light">
+            开启您的视觉管理之旅。只需几秒钟即可加入我们。
           </p>
         </div>
-        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-          <div className="space-y-4">
-            <div>
-              <label htmlFor="username" className="block text-sm font-medium text-gray-700">
-                Username
-              </label>
-              <input
-                id="username"
-                type="text"
-                required
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary"
-              />
+        <div className="absolute bottom-10 left-12 z-20 text-white/60 text-sm">
+          © 2025 Photo Management System · BS课程作业项目
+        </div>
+      </div>
+
+      {/* 右侧：注册表单区域 */}
+      <div className="w-full lg:w-1/2 flex items-center justify-center p-8 sm:p-12 relative overflow-y-auto">
+        <div className="w-full max-w-md space-y-10 py-12">
+          <div className="text-center lg:text-left">
+            <div className="lg:hidden flex justify-center mb-6">
+               <div className="p-3 bg-primary rounded-2xl shadow-lg">
+                 <Camera className="text-primary-foreground" size={32} />
+               </div>
             </div>
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-                Email
-              </label>
-              <input
-                id="email"
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary"
-              />
-            </div>
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700">
-                Password
-              </label>
-              <input
-                id="password"
-                type="password"
-                required
-                minLength={6}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary"
-              />
-              <p className="mt-1 text-xs text-gray-500">
-                At least 6 characters with letters and numbers
-              </p>
-            </div>
+            <h2 className="text-4xl font-extrabold tracking-tight">创建新账户</h2>
+            <p className="mt-3 text-muted-foreground text-lg">
+              填写以下信息以开始管理您的摄影作品
+            </p>
           </div>
 
-          <div>
+          <form className="mt-10 space-y-6" onSubmit={handleSubmit}>
+            <div className="space-y-5">
+              {/* 用户名 */}
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-foreground/80 ml-1">用户名称</label>
+                <div className="relative group">
+                  <User className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-primary transition-colors" size={20} />
+                  <input
+                    type="text"
+                    required
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    placeholder="您的昵称"
+                    className="w-full pl-12 pr-4 py-3.5 bg-card border border-border rounded-2xl focus:outline-none focus:ring-4 focus:ring-primary/10 focus:border-primary transition-all shadow-sm"
+                  />
+                </div>
+              </div>
+
+              {/* 邮箱 */}
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-foreground/80 ml-1">电子邮箱</label>
+                <div className="relative group">
+                  <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-primary transition-colors" size={20} />
+                  <input
+                    type="email"
+                    required
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="name@example.com"
+                    className="w-full pl-12 pr-4 py-3.5 bg-card border border-border rounded-2xl focus:outline-none focus:ring-4 focus:ring-primary/10 focus:border-primary transition-all shadow-sm"
+                  />
+                </div>
+              </div>
+
+              {/* 密码 */}
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-foreground/80 ml-1">设置密码</label>
+                <div className="relative group">
+                  <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-primary transition-colors" size={20} />
+                  <input
+                    type="password"
+                    required
+                    minLength={6}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="至少 6 个字符"
+                    className="w-full pl-12 pr-4 py-3.5 bg-card border border-border rounded-2xl focus:outline-none focus:ring-4 focus:ring-primary/10 focus:border-primary transition-all shadow-sm"
+                  />
+                </div>
+                <p className="text-[10px] text-muted-foreground mt-2 ml-1 flex items-center gap-1">
+                  <ArrowRight size={10} /> 建议使用包含字母和数字的强密码
+                </p>
+              </div>
+            </div>
+
             <button
               type="submit"
               disabled={registerMutation.isPending}
-              className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-primary hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary disabled:opacity-50"
+              className="w-full flex items-center justify-center gap-3 py-4 px-6 border border-transparent rounded-2xl shadow-xl text-base font-bold text-primary-foreground bg-primary hover:opacity-90 active:scale-[0.98] transition-all disabled:opacity-50 disabled:scale-100"
             >
-              {registerMutation.isPending ? 'Creating account...' : 'Sign up'}
+              {registerMutation.isPending ? (
+                <div className="w-5 h-5 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
+              ) : (
+                <>
+                  <UserPlus size={20} />
+                  立即注册
+                </>
+              )}
             </button>
-          </div>
 
-          <div className="text-center text-sm">
-            <span className="text-gray-600">Already have an account? </span>
-            <Link to="/login" className="font-medium text-primary hover:underline">
-              Sign in
-            </Link>
-          </div>
-        </form>
+            <p className="text-center text-sm text-muted-foreground pt-6">
+              已经有账户了？{' '}
+              <Link to="/login" className="font-bold text-primary hover:underline underline-offset-4 hover:text-primary/80 transition-colors">
+                返回登录
+              </Link>
+            </p>
+          </form>
+        </div>
       </div>
     </div>
   )

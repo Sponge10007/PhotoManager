@@ -1,5 +1,42 @@
 @import "tailwindcss";
 
+/* 1. 在 @theme 块中建立变量映射 */
+@theme {
+  /* 颜色映射：Tailwind v4 会自动根据 --color-* 生成对应的工具类 */
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+}
+
+/* 2. 定义具体的 CSS 变量数值 */
 @layer base {
   :root {
     --background: 0 0% 100%;
@@ -47,8 +84,11 @@
   }
 }
 
+/* 3. 应用基础样式 */
 @layer base {
   * {
+    /* 这里的 border-border 现在能生效了，
+       因为我们在 @theme 中定义了 --color-border */
     @apply border-border;
   }
   body {
