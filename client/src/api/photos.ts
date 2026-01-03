@@ -5,7 +5,7 @@ export const photosApi = {
   uploadPhoto: (file: File) => {
     const formData = new FormData()
     formData.append('file', file)
-    return api.post<any, { id: string; url: string }>('/photos', formData, {
+    return api.post<any, Photo>('/photos', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },

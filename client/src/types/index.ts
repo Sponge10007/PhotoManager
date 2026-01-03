@@ -68,6 +68,7 @@ export interface RegisterRequest {
 export interface PhotoListParams {
   page?: number
   limit?: number
+  q?: string
   tag?: string
   startDate?: string
   endDate?: string

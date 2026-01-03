@@ -5,7 +5,7 @@
 ## 技术栈
 
 ### 前端
-- React 18 + TypeScript
+- React 19 + TypeScript
 - Vite
 - Tailwind CSS + Shadcn/UI
 - Zustand (状态管理)
@@ -13,7 +13,7 @@
 - React Router (路由)
 
 ### 后端
-- Go (Golang) 1.21+
+- Go (Golang) 1.24+
 - Gin (Web 框架)
 - MongoDB 6.0+ (数据库)
 - JWT (认证)
@@ -99,7 +99,7 @@ docker-compose down
 
 ### 图片接口 (需要认证)
 - `POST /api/v1/photos` - 上传图片
-- `GET /api/v1/photos` - 获取图片列表
+- `GET /api/v1/photos` - 获取图片列表（支持 `page/limit/q/tag/startDate/endDate` 查询参数）
 - `GET /api/v1/photos/:id` - 获取图片详情
 - `PUT /api/v1/photos/:id` - 更新图片信息
 - `DELETE /api/v1/photos/:id` - 删除图片
@@ -107,27 +107,22 @@ docker-compose down
 ## 功能特性
 
 ### 已实现
-- ✅ 用户注册/登录
-- ✅ JWT 认证
-- ✅ 基础路由和页面框架
-- ✅ MongoDB 连接
-- ✅ 三层架构 (Controller-Service-Repository)
+- ✅ 用户注册/登录 + JWT 认证
+- ✅ 图片上传与存储（含缩略图生成、EXIF 解析）
+- ✅ 图片秒传/去重（基于 Hash 复用文件，删除时安全引用计数）
+- ✅ 图片列表分页 + 搜索/过滤（`q/tag/startDate/endDate`）
+- ✅ 图片详情编辑（标题/描述/标签）与下载
 
 ### 待实现
-- ⏳ 图片上传与存储
-- ⏳ EXIF 信息解析
-- ⏳ 缩略图生成
-- ⏳ 图片秒传（基于 Hash）
-- ⏳ AI 标签分析
-- ⏳ 高级搜索和过滤
-- ⏳ 图片编辑功能
-- ⏳ MCP 智能检索
+- ⏳ 更高级的 AI 标签分析（接入视觉模型）
+- ⏳ 更丰富的图片编辑（裁剪/旋转等）
+- ⏳ MCP/向量检索等高级检索
 
 ## 开发说明
 
 ### 环境要求
 - Node.js 20+
-- Go 1.21+
+- Go 1.24+
 - MongoDB 6.0+
 - Docker & Docker Compose (可选)
 

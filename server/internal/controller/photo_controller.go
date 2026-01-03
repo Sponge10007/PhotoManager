@@ -1,10 +1,13 @@
 package controller
 
 import (
+	"fmt"
 	"net/http"
 	"photoms/internal/models"
 	"photoms/internal/service"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -47,13 +50,37 @@ func (ctrl *PhotoController) List(c *gin.Context) {
 	// 1. 获取分页参数
 	page, _ := strconv.ParseInt(c.DefaultQuery("page", "1"), 10, 64)
 	limit, _ := strconv.ParseInt(c.DefaultQuery("limit", "20"), 10, 64)
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	// 过滤参数
+	q := strings.TrimSpace(c.Query("q"))
+	tag := strings.TrimSpace(c.Query("tag"))
+
+	startDate, err := parseDateQuery(c.Query("startDate"), false)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	endDate, err := parseDateQuery(c.Query("endDate"), true)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	// 2. 获取当前用户 ID
 	userIDStr, _ := c.Get("userId")
 	userID, _ := primitive.ObjectIDFromHex(userIDStr.(string))
 
 	// 3. 调用 Service 获取数据
-	photos, total, err := ctrl.photoService.ListPhotos(c.Request.Context(), userID, page, limit)
+	photos, total, err := ctrl.photoService.ListPhotos(c.Request.Context(), userID, page, limit, q, tag, startDate, endDate)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -70,6 +97,26 @@ func (ctrl *PhotoController) List(c *gin.Context) {
 			"limit": limit,
 		},
 	})
+}
+
+func parseDateQuery(value string, endOfDay bool) (*time.Time, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, nil
+	}
+
+	if t, err := time.Parse(time.RFC3339, value); err == nil {
+		return &t, nil
+	}
+
+	if t, err := time.ParseInLocation("2006-01-02", value, time.Local); err == nil {
+		if endOfDay {
+			t = t.Add(24*time.Hour - time.Nanosecond)
+		}
+		return &t, nil
+	}
+
+	return nil, fmt.Errorf("invalid date format: %s", value)
 }
 
 func (ctrl *PhotoController) GetByID(c *gin.Context) {

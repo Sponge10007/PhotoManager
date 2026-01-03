@@ -3,6 +3,8 @@ package repository
 import (
 	"context"
 	"photoms/internal/models"
+	"regexp"
+	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -21,7 +23,8 @@ func NewPhotoRepository(db *mongo.Database) *PhotoRepository {
 }
 
 func (r *PhotoRepository) Create(ctx context.Context, photo *models.Photo) error {
-	photo.CreatedAt = primitive.NewDateTimeFromTime(primitive.DateTime(0).Time())
+	now := primitive.NewDateTimeFromTime(time.Now())
+	photo.CreatedAt = now
 	photo.UpdatedAt = photo.CreatedAt
 
 	result, err := r.collection.InsertOne(ctx, photo)
@@ -42,10 +45,39 @@ func (r *PhotoRepository) FindByHash(ctx context.Context, hash string) (*models.
 	return &photo, nil
 }
 
-func (r *PhotoRepository) FindByUserID(ctx context.Context, userID primitive.ObjectID, page, limit int64) ([]*models.Photo, int64, error) {
+func (r *PhotoRepository) FindByUserID(ctx context.Context, userID primitive.ObjectID, page, limit int64, q, tag string, startDate, endDate *time.Time) ([]*models.Photo, int64, error) {
 	skip := (page - 1) * limit
 
 	filter := bson.M{"user_id": userID}
+	if tag != "" {
+		filter["tags.name"] = primitive.Regex{
+			Pattern: "^" + regexp.QuoteMeta(tag) + "$",
+			Options: "i",
+		}
+	}
+
+	if q != "" {
+		regex := primitive.Regex{
+			Pattern: regexp.QuoteMeta(q),
+			Options: "i",
+		}
+		filter["$or"] = bson.A{
+			bson.M{"title": regex},
+			bson.M{"description": regex},
+			bson.M{"tags.name": regex},
+		}
+	}
+
+	if startDate != nil || endDate != nil {
+		createdAt := bson.M{}
+		if startDate != nil {
+			createdAt["$gte"] = primitive.NewDateTimeFromTime(*startDate)
+		}
+		if endDate != nil {
+			createdAt["$lte"] = primitive.NewDateTimeFromTime(*endDate)
+		}
+		filter["created_at"] = createdAt
+	}
 
 	opts := options.Find().
 		SetSkip(skip).
@@ -81,7 +113,7 @@ func (r *PhotoRepository) FindByID(ctx context.Context, id primitive.ObjectID) (
 }
 
 func (r *PhotoRepository) Update(ctx context.Context, id primitive.ObjectID, update bson.M) error {
-	update["updated_at"] = primitive.NewDateTimeFromTime(primitive.DateTime(0).Time())
+	update["updated_at"] = primitive.NewDateTimeFromTime(time.Now())
 
 	_, err := r.collection.UpdateOne(
 		ctx,
@@ -94,4 +126,8 @@ func (r *PhotoRepository) Update(ctx context.Context, id primitive.ObjectID, upd
 func (r *PhotoRepository) Delete(ctx context.Context, id primitive.ObjectID) error {
 	_, err := r.collection.DeleteOne(ctx, bson.M{"_id": id})
 	return err
+}
+
+func (r *PhotoRepository) CountByFileName(ctx context.Context, fileName string) (int64, error) {
+	return r.collection.CountDocuments(ctx, bson.M{"file_name": fileName})
 }

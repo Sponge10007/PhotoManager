@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"photoms/internal/models"
+	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -20,7 +21,8 @@ func NewUserRepository(db *mongo.Database) *UserRepository {
 }
 
 func (r *UserRepository) Create(ctx context.Context, user *models.User) error {
-	user.CreatedAt = primitive.NewDateTimeFromTime(primitive.DateTime(0).Time())
+	now := primitive.NewDateTimeFromTime(time.Now())
+	user.CreatedAt = now
 	user.UpdatedAt = user.CreatedAt
 
 	result, err := r.collection.InsertOne(ctx, user)

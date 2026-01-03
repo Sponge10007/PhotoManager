@@ -19,7 +19,10 @@ export default function RegisterPage() {
       navigate('/')
     },
     onError: (error: any) => {
-      const errorMsg = error.response?.data?.message || '注册失败，请检查填写内容'
+      const errorMsg =
+        error?.response?.data?.error ||
+        error?.response?.data?.message ||
+        '注册失败，请检查填写内容'
       alert(errorMsg)
     },
   })

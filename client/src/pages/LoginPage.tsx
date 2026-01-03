@@ -19,7 +19,10 @@ export default function LoginPage() {
     },
     onError: (error: any) => {
       // 增强错误提示体验
-      const errorMsg = error.response?.data?.message || '登录失败，请检查账号密码'
+      const errorMsg =
+        error?.response?.data?.error ||
+        error?.response?.data?.message ||
+        '登录失败，请检查账号密码'
       alert(errorMsg)
     },
   })

@@ -13,6 +13,7 @@ import (
 	"photoms/internal/repository"
 	"photoms/pkg/config"
 	"photoms/pkg/utils"
+	"strings"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -44,14 +45,24 @@ func (s *PhotoService) UploadPhoto(ctx context.Context, userID primitive.ObjectI
 	// 检查是否已存在相同 Hash 的图片
 	existing, _ := s.repo.FindByHash(ctx, fileHash)
 	if existing != nil {
-		// 秒传逻辑：复用路径，仅新建数据库记录
-		newPhoto := *existing
-		newPhoto.ID = primitive.NilObjectID
-		newPhoto.UserID = userID
-		if err := s.repo.Create(ctx, &newPhoto); err != nil {
+		// 秒传逻辑：复用文件/EXIF/缩略图，但不复用用户元数据（标题/描述/标签）
+		newPhoto := &models.Photo{
+			UserID:    userID,
+			Title:     file.Filename,
+			FileName:  existing.FileName,
+			Path:      existing.Path,
+			ThumbPath: existing.ThumbPath,
+			Hash:      existing.Hash,
+			Size:      existing.Size,
+			MimeType:  existing.MimeType,
+			Exif:      existing.Exif,
+			Tags:      buildAutoTags(existing.Exif, filepath.Ext(existing.FileName), existing.MimeType),
+		}
+
+		if err := s.repo.Create(ctx, newPhoto); err != nil {
 			return nil, err
 		}
-		return &newPhoto, nil
+		return newPhoto, nil
 	}
 
 	// 2. 保存新文件
@@ -85,16 +96,20 @@ func (s *PhotoService) UploadPhoto(ctx context.Context, userID primitive.ObjectI
 	}
 
 	// 构造数据库模型
+	mimeType := file.Header.Get("Content-Type")
+	autoTags := buildAutoTags(exifInfo, ext, mimeType)
+
 	photo := &models.Photo{
 		UserID:    userID,
 		Title:     file.Filename,
 		FileName:  newFileName,
 		Path:      "/uploads/" + newFileName, // 用于前端访问
-		ThumbPath: "/uploads/" + newFileName, // 暂时使用原图作为缩略图
+		ThumbPath: "/uploads/" + thumbFileName,
 		Hash:      fileHash,
 		Size:      file.Size,
-		MimeType:  file.Header.Get("Content-Type"),
+		MimeType:  mimeType,
 		Exif:      exifInfo,
+		Tags:      autoTags,
 	}
 
 	if err := s.repo.Create(ctx, photo); err != nil {
@@ -104,8 +119,8 @@ func (s *PhotoService) UploadPhoto(ctx context.Context, userID primitive.ObjectI
 	return photo, nil
 }
 
-func (s *PhotoService) ListPhotos(ctx context.Context, userID primitive.ObjectID, page, limit int64) ([]*models.Photo, int64, error) {
-	return s.repo.FindByUserID(ctx, userID, page, limit)
+func (s *PhotoService) ListPhotos(ctx context.Context, userID primitive.ObjectID, page, limit int64, q, tag string, startDate, endDate *time.Time) ([]*models.Photo, int64, error) {
+	return s.repo.FindByUserID(ctx, userID, page, limit, q, tag, startDate, endDate)
 }
 
 // GetPhotoByID 获取单张图片详情（验证用户所有权）
@@ -167,13 +182,29 @@ func (s *PhotoService) DeletePhoto(ctx context.Context, photoID, userID primitiv
 		return err
 	}
 
+	// 先删除数据库记录，避免文件已删除但数据库删除失败
+	if err := s.repo.Delete(ctx, photoID); err != nil {
+		return fmt.Errorf("failed to delete photo from database: %w", err)
+	}
+
+	// 若该文件被其他记录复用（秒传/重复上传），则跳过磁盘清理
+	if photo.FileName == "" {
+		return nil
+	}
+
+	remaining, err := s.repo.CountByFileName(ctx, photo.FileName)
+	if err != nil {
+		fmt.Printf("Warning: failed to count file references for %s: %v\n", photo.FileName, err)
+		return nil
+	}
+	if remaining > 0 {
+		return nil
+	}
+
 	// 删除磁盘文件
-	if photo.FileName != "" {
-		filePath := filepath.Join(s.config.UploadDir, photo.FileName)
-		if err := os.Remove(filePath); err != nil {
-			// 文件删除失败不阻塞数据库删除，仅记录错误
-			fmt.Printf("Warning: failed to delete file %s: %v\n", filePath, err)
-		}
+	filePath := filepath.Join(s.config.UploadDir, photo.FileName)
+	if err := os.Remove(filePath); err != nil {
+		fmt.Printf("Warning: failed to delete file %s: %v\n", filePath, err)
 	}
 
 	// 删除缩略图（如果与原图不同）
@@ -185,10 +216,56 @@ func (s *PhotoService) DeletePhoto(ctx context.Context, photoID, userID primitiv
 		}
 	}
 
-	// 删除数据库记录
-	if err := s.repo.Delete(ctx, photoID); err != nil {
-		return fmt.Errorf("failed to delete photo from database: %w", err)
+	return nil
+}
+
+func buildAutoTags(exifInfo *models.ExifInfo, fileExt, mimeType string) []models.Tag {
+	tags := make([]models.Tag, 0, 8)
+	seen := make(map[string]struct{}, 8)
+
+	add := func(name string) {
+		name = strings.TrimSpace(strings.Trim(name, "\"\x00"))
+		if name == "" {
+			return
+		}
+		key := strings.ToLower(name)
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		tags = append(tags, models.Tag{
+			Name:   name,
+			Source: "AI",
+		})
 	}
 
-	return nil
+	if fileExt != "" {
+		ext := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(fileExt)), ".")
+		if ext != "" {
+			add(ext)
+		}
+	}
+
+	if mimeType != "" {
+		parts := strings.SplitN(mimeType, "/", 2)
+		if len(parts) == 2 && strings.TrimSpace(parts[1]) != "" {
+			add(strings.TrimSpace(parts[1]))
+		}
+	}
+
+	if exifInfo == nil {
+		return tags
+	}
+
+	add(exifInfo.Make)
+	add(exifInfo.Model)
+	add(exifInfo.Lens)
+	if exifInfo.ISO > 0 {
+		add(fmt.Sprintf("ISO%d", exifInfo.ISO))
+	}
+	if exifInfo.GPS != nil {
+		add("GPS")
+	}
+
+	return tags
 }
