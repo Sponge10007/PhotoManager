@@ -13,7 +13,8 @@ export default function HomePage() {
   const queryClient = useQueryClient()
   const clearAuth = useAuthStore((state) => state.clearAuth)
   const user = useAuthStore((state) => state.user)
-
+  
+  const [activeTab, setActiveTab] = useState<'all' | 'recent' | 'tags'>('all'); // 踪激活标签
   const [page, setPage] = useState(1)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [isUploadOpen, setIsUploadOpen] = useState(false)
@@ -48,6 +49,27 @@ export default function HomePage() {
     clearFilters()
     setFiltersOpen(false)
   }
+
+  const handleShowAll = () => {
+    setActiveTab('all');
+    setSearchInput('');
+    setQ('');
+    setTag('');
+    setStartDate('');
+    setEndDate('');
+    setPage(1);
+    setFiltersOpen(false); // 关闭筛选面板让界面更清爽
+  };
+
+  const handleShowRecent = () => {
+    setActiveTab('recent');
+    const d = new Date();
+    d.setDate(d.getDate() - 7);
+    setStartDate(d.toISOString().slice(0, 10));
+    setEndDate('');
+    setFiltersOpen(true);
+    setPage(1);
+  };
 
   // 获取图片列表
   const { data: photosData, isLoading } = useQuery({
@@ -107,25 +129,37 @@ export default function HomePage() {
             <h1 className="text-xl font-bold tracking-tight">PhotoMS</h1>
           </div>
 
-          <nav className="flex-1 space-y-1">
-            <button
-              onClick={resetAll}
-              className="w-full flex items-center gap-3 px-3 py-2 rounded-xl bg-secondary text-secondary-foreground font-medium"
-            >
-              <ImageIcon size={18} /> 全部图片
-            </button>
-            <button
-              onClick={setRecentUploads}
-              className="w-full flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-secondary/50 transition-colors text-muted-foreground"
-            >
-              <Clock size={18} /> 最近上传
-            </button>
-            <button
-              onClick={() => setFiltersOpen(true)}
-              className="w-full flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-secondary/50 transition-colors text-muted-foreground"
-            >
-              <Tag size={18} /> 标签管理
-            </button>
+          <nav className="flex-1 space-y-2">
+            {[
+              { id: 'all', icon: <ImageIcon size={18} />, label: '全部图片', action: handleShowAll },
+              { id: 'recent', icon: <Clock size={18} />, label: '最近上传', action: handleShowRecent },
+              { id: 'tags', icon: <Tag size={18} />, label: '标签管理', action: () => { setActiveTab('tags'); setFiltersOpen(true); } },
+            ].map((item) => (
+              <button
+                key={item.id}
+                onClick={item.action}
+                className={`group relative w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 overflow-hidden ${
+                  activeTab === item.id 
+                    ? 'bg-primary/10 text-primary shadow-[inset_0_0_20px_rgba(var(--primary),0.05)]' 
+                    : 'hover:bg-white/5 text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {/* 激活时的垂直指示条 */}
+                <div className={`absolute left-0 w-1 bg-primary rounded-r-full transition-all duration-300 ${
+                  activeTab === item.id ? 'h-6 opacity-100' : 'h-0 opacity-0'
+                }`} />
+                
+                {/* 图标动画 */}
+                <span className={`transition-transform duration-300 ${activeTab === item.id ? 'scale-110' : 'group-hover:translate-x-1'}`}>
+                  {item.icon}
+                </span>
+                
+                <span className="font-medium tracking-wide text-sm">{item.label}</span>
+
+                {/* 悬浮时的微光效果 */}
+                <div className="absolute inset-0 bg-gradient-to-r from-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+              </button>
+            ))}
           </nav>
 
           <div className="pt-4 border-t mt-auto">
@@ -148,27 +182,46 @@ export default function HomePage() {
       <main className="flex-1 flex flex-col min-w-0">
         {/* 修改：顶部 Header */}
         <header className="h-16 border-b flex items-center justify-between px-6 bg-card/50 backdrop-blur-md">
+          <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-primary/20 to-transparent" />
           <div className="flex items-center gap-4 flex-1">
             <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-2 hover:bg-secondary rounded-lg text-muted-foreground">
               {sidebarOpen ? <X size={20} /> : <Menu size={20} />}
             </button>
-            <div className="flex items-center gap-2 max-w-md w-full">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} />
+            {/* 搜索栏部分 - 适配白色背景 */}
+            <div className="flex items-center gap-3 max-w-xl w-full">
+              <div className="relative flex-1 group">
+                {/* 搜索图标 */}
+                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400 group-focus-within:text-primary transition-colors">
+                  <Search size={18} />
+                </div>
+                
                 <input
                   type="text"
                   value={searchInput}
                   onChange={(e) => setSearchInput(e.target.value)}
-                  placeholder="搜索图片（标题/描述/标签）..."
-                  className="w-full pl-10 pr-4 py-2 bg-secondary/50 border-none rounded-full text-sm focus:ring-2 focus:ring-primary/20"
+                  placeholder="搜索您的灵感..."
+                  className="w-full pl-12 pr-4 py-2.5 bg-zinc-50 border border-zinc-200 rounded-2xl text-sm transition-all duration-300
+                            text-zinc-900 placeholder:text-zinc-400
+                            focus:bg-white focus:border-primary/50 focus:ring-4 focus:ring-primary/5 focus:outline-none
+                            shadow-sm hover:shadow-md"
                 />
+                
+                {/* 快捷键提示 */}
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 px-1.5 py-0.5 border border-zinc-200 rounded-md bg-white text-[10px] text-zinc-400 font-mono hidden sm:block shadow-sm">
+                  ⌘ K
+                </div>
               </div>
+
+              {/* 筛选切换按钮 */}
               <button
                 onClick={() => setFiltersOpen((v) => !v)}
-                className="p-2 hover:bg-secondary rounded-lg text-muted-foreground"
-                aria-label="Filters"
+                className={`p-2.5 rounded-2xl border transition-all duration-300 ${
+                  filtersOpen 
+                    ? 'bg-primary text-primary-foreground border-primary shadow-lg shadow-primary/20' 
+                    : 'bg-white border-zinc-200 text-zinc-500 hover:border-zinc-300 hover:bg-zinc-50 shadow-sm'
+                }`}
               >
-                <SlidersHorizontal size={18} />
+                <SlidersHorizontal size={20} />
               </button>
             </div>
           </div>
@@ -180,51 +233,61 @@ export default function HomePage() {
           </button>
         </header>
 
+        {/* 标签与日期筛选面板 - 适配白色背景 */}
         {filtersOpen && (
-          <div className="border-b bg-card/30 backdrop-blur-md px-6 py-3">
-            <div className="flex flex-wrap items-end gap-3">
-              <div className="flex flex-col gap-1">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">标签</label>
+          <div className="mx-6 mt-4 p-5 bg-white border border-zinc-100 rounded-[24px] shadow-[0_20px_50px_-12px_rgba(0,0,0,0.08)] animate-in fade-in slide-in-from-top-4 duration-300">
+            <div className="flex flex-wrap items-end gap-8">
+              {/* 标签输入 */}
+              <div className="flex flex-col gap-2">
+                <label className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-widest text-zinc-400 ml-1">
+                  <Tag size={12} className="text-primary/70" /> 标签名称
+                </label>
                 <input
                   value={tag}
-                  onChange={(e) => {
-                    setTag(e.target.value)
-                    setPage(1)
-                  }}
-                  placeholder="精确标签（可选）"
-                  className="w-48 bg-secondary/40 rounded-xl px-3 py-2 text-sm border border-border/50 focus:outline-none focus:border-primary"
+                  onChange={(e) => { setTag(e.target.value); setPage(1); }}
+                  placeholder="例如: 风景"
+                  className="w-44 bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-2 text-sm text-zinc-900 focus:bg-white focus:border-primary/40 focus:outline-none transition-all"
                 />
               </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">开始日期</label>
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => {
-                    setStartDate(e.target.value)
-                    setPage(1)
-                  }}
-                  className="bg-secondary/40 rounded-xl px-3 py-2 text-sm border border-border/50 focus:outline-none focus:border-primary"
-                />
+
+              {/* 日期范围 */}
+              <div className="flex flex-col gap-2">
+                <label className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-widest text-zinc-400 ml-1">
+                  <Clock size={12} className="text-primary/70" /> 拍摄日期
+                </label>
+                <div className="flex items-center gap-2 bg-zinc-50 border border-zinc-200 rounded-xl px-3 shadow-inner">
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => { setStartDate(e.target.value); setPage(1); }}
+                    className="bg-transparent border-none py-2 text-sm focus:ring-0 text-zinc-700 appearance-none"
+                  />
+                  <span className="text-zinc-300 font-light">→</span>
+                  <input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => { setEndDate(e.target.value); setPage(1); }}
+                    className="bg-transparent border-none py-2 text-sm focus:ring-0 text-zinc-700 appearance-none"
+                  />
+                </div>
               </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">结束日期</label>
-                <input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => {
-                    setEndDate(e.target.value)
-                    setPage(1)
-                  }}
-                  className="bg-secondary/40 rounded-xl px-3 py-2 text-sm border border-border/50 focus:outline-none focus:border-primary"
-                />
+
+              {/* 操作按钮组 */}
+              <div className="ml-auto flex items-center gap-3">
+                <button
+                  onClick={clearFilters}
+                  className="px-4 py-2 text-xs font-bold text-zinc-400 hover:text-zinc-600 transition-colors"
+                >
+                  重置条件
+                </button>
+                <div className="w-[1px] h-4 bg-zinc-200" /> {/* 分割线 */}
+                <button
+                  onClick={() => setFiltersOpen(false)}
+                  className="px-5 py-2 rounded-xl bg-zinc-900 text-white text-xs font-bold hover:bg-zinc-800 transition-all shadow-md shadow-zinc-200"
+                >
+                  应用筛选
+                </button>
               </div>
-              <button
-                onClick={clearFilters}
-                className="ml-auto px-4 py-2 rounded-xl bg-secondary text-secondary-foreground text-sm font-bold hover:opacity-90"
-              >
-                清除筛选
-              </button>
             </div>
           </div>
         )}
