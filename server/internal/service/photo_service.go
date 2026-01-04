@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -11,21 +12,28 @@ import (
 	"path/filepath"
 	"photoms/internal/models"
 	"photoms/internal/repository"
+	"photoms/pkg/ai"
 	"photoms/pkg/config"
 	"photoms/pkg/utils"
 	"strings"
 	"time"
 
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type PhotoService struct {
 	repo   *repository.PhotoRepository
 	config *config.Config
+	tagger ai.ImageTagger
 }
 
 func NewPhotoService(repo *repository.PhotoRepository, cfg *config.Config) *PhotoService {
-	return &PhotoService{repo: repo, config: cfg}
+	tagger, err := ai.NewImageTagger(cfg)
+	if err != nil && !errors.Is(err, ai.ErrDisabled) {
+		fmt.Printf("Warning: AI tagger is not available: %v\n", err)
+	}
+	return &PhotoService{repo: repo, config: cfg, tagger: tagger}
 }
 
 func (s *PhotoService) UploadPhoto(ctx context.Context, userID primitive.ObjectID, file *multipart.FileHeader) (*models.Photo, error) {
@@ -62,6 +70,7 @@ func (s *PhotoService) UploadPhoto(ctx context.Context, userID primitive.ObjectI
 		if err := s.repo.Create(ctx, newPhoto); err != nil {
 			return nil, err
 		}
+		s.maybeGenerateAITagsAsync(newPhoto.ID, userID)
 		return newPhoto, nil
 	}
 
@@ -88,7 +97,7 @@ func (s *PhotoService) UploadPhoto(ctx context.Context, userID primitive.ObjectI
 	exifInfo, _ := utils.ExtractExif(uploadPath)
 
 	// 生成缩略图
-	thumbFileName := fmt.Sprintf("thumb_%s", newFileName)
+	thumbFileName := fmt.Sprintf("thumb_%s.jpg", strings.TrimSuffix(newFileName, ext))
 	thumbPath := filepath.Join(s.config.UploadDir, thumbFileName)
 	if err := utils.GenerateThumbnail(uploadPath, thumbPath, 400); err != nil {
 		fmt.Printf("Warning: failed to generate thumbnail: %v\n", err)
@@ -116,6 +125,7 @@ func (s *PhotoService) UploadPhoto(ctx context.Context, userID primitive.ObjectI
 		return nil, err
 	}
 
+	s.maybeGenerateAITagsAsync(photo.ID, userID)
 	return photo, nil
 }
 
@@ -174,6 +184,37 @@ func (s *PhotoService) UpdatePhoto(ctx context.Context, photoID, userID primitiv
 	return s.repo.FindByID(ctx, photoID)
 }
 
+func (s *PhotoService) GenerateAITags(ctx context.Context, photoID, userID primitive.ObjectID) (*models.Photo, error) {
+	if s.config == nil || !s.config.AITaggingEnabled {
+		return nil, ai.ErrDisabled
+	}
+	if s.tagger == nil {
+		return nil, ai.ErrNotConfigured
+	}
+
+	photo, err := s.GetPhotoByID(ctx, photoID, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	imagePath := resolvePhotoDiskPath(s.config.UploadDir, photo)
+	if imagePath == "" {
+		return nil, fmt.Errorf("failed to resolve photo file path")
+	}
+
+	aiTags, err := s.tagger.GenerateTags(ctx, imagePath)
+	if err != nil {
+		return nil, err
+	}
+
+	merged := mergeTags(photo.Tags, aiTags)
+	if err := s.repo.Update(ctx, photoID, bson.M{"tags": merged}); err != nil {
+		return nil, fmt.Errorf("failed to update AI tags: %w", err)
+	}
+
+	return s.repo.FindByID(ctx, photoID)
+}
+
 // DeletePhoto 删除图片（包括文件和数据库记录）
 func (s *PhotoService) DeletePhoto(ctx context.Context, photoID, userID primitive.ObjectID) error {
 	// 先验证所有权
@@ -217,6 +258,74 @@ func (s *PhotoService) DeletePhoto(ctx context.Context, photoID, userID primitiv
 	}
 
 	return nil
+}
+
+func (s *PhotoService) maybeGenerateAITagsAsync(photoID, userID primitive.ObjectID) {
+	if s.tagger == nil || s.config == nil || !s.config.AITaggingEnabled {
+		return
+	}
+
+	timeout := time.Duration(s.config.AITagTimeoutSeconds) * time.Second
+	if timeout <= 0 {
+		timeout = 20 * time.Second
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		if _, err := s.GenerateAITags(ctx, photoID, userID); err != nil {
+			fmt.Printf("Warning: AI tagging failed for photo %s: %v\n", photoID.Hex(), err)
+		}
+	}()
+}
+
+func resolvePhotoDiskPath(uploadDir string, photo *models.Photo) string {
+	if photo == nil {
+		return ""
+	}
+
+	// Prefer thumbnail to reduce payload size (fallback to original).
+	if p := joinUploadPath(uploadDir, photo.ThumbPath); p != "" {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return joinUploadPath(uploadDir, photo.Path)
+}
+
+func joinUploadPath(uploadDir, webPath string) string {
+	base := filepath.Base(strings.TrimSpace(webPath))
+	if base == "" || base == "." || base == "/" {
+		return ""
+	}
+	return filepath.Join(uploadDir, base)
+}
+
+func mergeTags(existing []models.Tag, additions []models.Tag) []models.Tag {
+	out := make([]models.Tag, 0, len(existing)+len(additions))
+	seen := make(map[string]struct{}, len(existing)+len(additions))
+
+	addTag := func(tag models.Tag) {
+		name := strings.TrimSpace(strings.Trim(tag.Name, "\"\x00"))
+		if name == "" {
+			return
+		}
+		key := strings.ToLower(name)
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		tag.Name = name
+		out = append(out, tag)
+	}
+
+	for _, tag := range existing {
+		addTag(tag)
+	}
+	for _, tag := range additions {
+		addTag(tag)
+	}
+	return out
 }
 
 func buildAutoTags(exifInfo *models.ExifInfo, fileExt, mimeType string) []models.Tag {
@@ -268,4 +377,95 @@ func buildAutoTags(exifInfo *models.ExifInfo, fileExt, mimeType string) []models
 	}
 
 	return tags
+}
+
+// server/internal/service/photo_service.go 增加方法
+
+func (s *PhotoService) EditPhoto(ctx context.Context, photoID, userID primitive.ObjectID,
+	cropX, cropY, cropW, cropH int, brightness, contrast, saturation float64) (*models.Photo, error) {
+
+	// 获取原图
+	oldPhoto, err := s.GetPhotoByID(ctx, photoID, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 准备新文件路径
+	oldFilePath := filepath.Join(s.config.UploadDir, filepath.Base(oldPhoto.Path))
+	oldBase := filepath.Base(oldPhoto.Path)
+	oldExt := filepath.Ext(oldBase)
+	extLower := strings.ToLower(oldExt)
+	oldStem := strings.TrimSuffix(oldBase, oldExt)
+
+	outExt := extLower
+	switch outExt {
+	case ".jpeg":
+		outExt = ".jpg"
+	case ".jpg", ".png", ".gif", ".bmp", ".tif", ".tiff":
+		// keep
+	default:
+		outExt = ".jpg"
+	}
+
+	newFileName := fmt.Sprintf("edit_%d_%s%s", time.Now().UnixNano(), oldStem, outExt)
+	newUploadPath := filepath.Join(s.config.UploadDir, newFileName)
+
+	// 调用工具类处理图片
+	if err := utils.EditImage(oldFilePath, newUploadPath, cropX, cropY, cropW, cropH, brightness, contrast, saturation); err != nil {
+		return nil, err
+	}
+
+	// 生成新缩略图并复用原 EXIF
+	thumbName := "thumb_" + newFileName
+	if err := utils.GenerateThumbnail(newUploadPath, filepath.Join(s.config.UploadDir, thumbName), 400); err != nil {
+		fmt.Printf("Warning: failed to generate thumbnail: %v\n", err)
+		thumbName = newFileName
+	}
+
+	info, err := os.Stat(newUploadPath)
+	if err != nil {
+		return nil, err
+	}
+
+	file, err := os.Open(newUploadPath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return nil, err
+	}
+	newHash := hex.EncodeToString(hash.Sum(nil))
+
+	newMimeType := oldPhoto.MimeType
+	switch outExt {
+	case ".jpg":
+		newMimeType = "image/jpeg"
+	case ".png":
+		newMimeType = "image/png"
+	case ".gif":
+		newMimeType = "image/gif"
+	case ".bmp":
+		newMimeType = "image/bmp"
+	case ".tif", ".tiff":
+		newMimeType = "image/tiff"
+	}
+
+	// 创建新文档记录 (非破坏性编辑：生成新图片)
+	newPhoto := *oldPhoto
+	newPhoto.ID = primitive.NilObjectID
+	newPhoto.Title = "编辑自: " + oldPhoto.Title
+	newPhoto.FileName = newFileName
+	newPhoto.Path = "/uploads/" + newFileName
+	newPhoto.ThumbPath = "/uploads/" + thumbName
+	newPhoto.Hash = newHash
+	newPhoto.Size = info.Size()
+	newPhoto.MimeType = newMimeType
+
+	if err := s.repo.Create(ctx, &newPhoto); err != nil {
+		return nil, err
+	}
+	return &newPhoto, nil
 }

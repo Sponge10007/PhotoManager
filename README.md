@@ -103,20 +103,22 @@ docker-compose down
 - `GET /api/v1/photos/:id` - 获取图片详情
 - `PUT /api/v1/photos/:id` - 更新图片信息
 - `DELETE /api/v1/photos/:id` - 删除图片
+- `POST /api/v1/photos/:id/ai-tags` - 生成/刷新 AI 标签（可选功能，需要开启 `AI_TAGGING_ENABLED` 并配置 `ARK_API_KEY`）
 
 ## 功能特性
 
 ### 已实现
 - ✅ 用户注册/登录 + JWT 认证
 - ✅ 图片上传与存储（含缩略图生成、EXIF 解析）
+- ✅ AI 视觉标签（可选：接入火山方舟 Doubao 视觉模型，生成如风景/人物/动物等标签）
 - ✅ 图片秒传/去重（基于 Hash 复用文件，删除时安全引用计数）
 - ✅ 图片列表分页 + 搜索/过滤（`q/tag/startDate/endDate`）
 - ✅ 图片详情编辑（标题/描述/标签）与下载
+- ✅ MCP 对话检索（提供 MCP Server：`search_photos` / `get_photo`）
 
 ### 待实现
-- ⏳ 更高级的 AI 标签分析（接入视觉模型）
 - ⏳ 更丰富的图片编辑（裁剪/旋转等）
-- ⏳ MCP/向量检索等高级检索
+- ⏳ 向量检索等高级检索
 
 ## 开发说明
 
@@ -141,6 +143,19 @@ go run cmd/server/main.go  # 运行服务器
 go test ./...              # 运行测试
 go build -o bin/server cmd/server/main.go  # 构建可执行文件
 ```
+
+### MCP 对话检索 (Model Context Protocol)
+
+本项目提供一个 MCP Server（stdio），让支持 MCP 的大模型客户端通过对话检索 PhotoMS 图片库。
+
+```bash
+cd server
+go run cmd/mcp/main.go
+```
+
+可选环境变量：
+- `MCP_BASE_URL`：生成图片 URL 的网站地址（默认 `http://localhost:8080`）
+- `MCP_USER_ID`：可选，限制检索某个用户的图片（MongoDB ObjectID hex）
 
 ## 许可证
 

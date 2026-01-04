@@ -1,10 +1,12 @@
 package controller
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"photoms/internal/models"
 	"photoms/internal/service"
+	"photoms/pkg/ai"
 	"strconv"
 	"strings"
 	"time"
@@ -217,4 +219,89 @@ func (ctrl *PhotoController) Delete(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Photo deleted successfully"})
+}
+
+// server/internal/controller/photo_controller.go 增加方法
+
+func (ctrl *PhotoController) Edit(c *gin.Context) {
+	photoIDStr := c.Param("id")
+	photoID, err := primitive.ObjectIDFromHex(photoIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid photo ID"})
+		return
+	}
+
+	userIDStr, exists := c.Get("userId")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+	userID, err := primitive.ObjectIDFromHex(userIDStr.(string))
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	var req struct {
+		CropX      int     `json:"cropX"`
+		CropY      int     `json:"cropY"`
+		CropW      int     `json:"cropW"`
+		CropH      int     `json:"cropH"`
+		Brightness float64 `json:"brightness"`
+		Contrast   float64 `json:"contrast"`
+		Saturation float64 `json:"saturation"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+		return
+	}
+
+	photo, err := ctrl.photoService.EditPhoto(c.Request.Context(), photoID, userID,
+		req.CropX, req.CropY, req.CropW, req.CropH, req.Brightness, req.Contrast, req.Saturation)
+
+	if err != nil {
+		if err.Error() == "unauthorized: photo belongs to another user" {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Forbidden: You don't have permission to edit this photo"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, photo)
+}
+
+func (ctrl *PhotoController) GenerateAITags(c *gin.Context) {
+	photoIDStr := c.Param("id")
+	photoID, err := primitive.ObjectIDFromHex(photoIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid photo ID"})
+		return
+	}
+
+	userIDStr, exists := c.Get("userId")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+	userID, err := primitive.ObjectIDFromHex(userIDStr.(string))
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	photo, err := ctrl.photoService.GenerateAITags(c.Request.Context(), photoID, userID)
+	if err != nil {
+		if errors.Is(err, ai.ErrDisabled) || errors.Is(err, ai.ErrNotConfigured) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if err.Error() == "unauthorized: photo belongs to another user" {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Forbidden: You don't have permission to access this photo"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, photo)
 }

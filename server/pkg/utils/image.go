@@ -1,13 +1,16 @@
 package utils
 
 import (
+	"errors"
 	"fmt"
+	"image"
 	"os"
 	"photoms/internal/models"
 
 	"github.com/disintegration/imaging"
 	"github.com/rwcarlsen/goexif/exif"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	_ "golang.org/x/image/webp"
 )
 
 // ExtractExif 从图片文件中提取EXIF信息
@@ -108,5 +111,59 @@ func GenerateThumbnail(srcPath, dstPath string, width int) error {
 		return fmt.Errorf("failed to save thumbnail: %w", err)
 	}
 
+	return nil
+}
+
+// EditImage 处理图片：裁剪并调整色调
+func EditImage(srcPath, dstPath string, cropX, cropY, cropW, cropH int, brightness, contrast, saturation float64) error {
+	src, err := imaging.Open(srcPath)
+	if err != nil {
+		if errors.Is(err, image.ErrFormat) {
+			return fmt.Errorf("unsupported image format (supported: jpg/png/gif/bmp/tiff/webp): %w", err)
+		}
+		return fmt.Errorf("failed to open image: %w", err)
+	}
+
+	// 1. 如果提供了有效的裁剪参数，进行裁剪
+	if cropW > 0 && cropH > 0 {
+		b := src.Bounds()
+		x0 := cropX
+		y0 := cropY
+		x1 := cropX + cropW
+		y1 := cropY + cropH
+
+		if x0 < b.Min.X {
+			x0 = b.Min.X
+		}
+		if y0 < b.Min.Y {
+			y0 = b.Min.Y
+		}
+		if x1 > b.Max.X {
+			x1 = b.Max.X
+		}
+		if y1 > b.Max.Y {
+			y1 = b.Max.Y
+		}
+
+		if x1 > x0 && y1 > y0 {
+			src = imaging.Crop(src, image.Rect(x0, y0, x1, y1))
+		}
+	}
+
+	// 2. 调整色调 (imaging 库支持百分比调整)
+	if brightness != 0 {
+		src = imaging.AdjustBrightness(src, brightness) // -100 到 100
+	}
+	if contrast != 0 {
+		src = imaging.AdjustContrast(src, contrast)
+	}
+	if saturation != 0 {
+		src = imaging.AdjustSaturation(src, saturation)
+	}
+
+	// 3. 保存新图
+	if err := imaging.Save(src, dstPath); err != nil {
+		return fmt.Errorf("failed to save image: %w", err)
+	}
 	return nil
 }

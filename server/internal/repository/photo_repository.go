@@ -46,9 +46,18 @@ func (r *PhotoRepository) FindByHash(ctx context.Context, hash string) (*models.
 }
 
 func (r *PhotoRepository) FindByUserID(ctx context.Context, userID primitive.ObjectID, page, limit int64, q, tag string, startDate, endDate *time.Time) ([]*models.Photo, int64, error) {
+	return r.Find(ctx, &userID, page, limit, q, tag, startDate, endDate)
+}
+
+// Find searches photos with optional user scope.
+// If userID is nil, it returns photos for all users.
+func (r *PhotoRepository) Find(ctx context.Context, userID *primitive.ObjectID, page, limit int64, q, tag string, startDate, endDate *time.Time) ([]*models.Photo, int64, error) {
 	skip := (page - 1) * limit
 
-	filter := bson.M{"user_id": userID}
+	filter := bson.M{}
+	if userID != nil {
+		filter["user_id"] = *userID
+	}
 	if tag != "" {
 		filter["tags.name"] = primitive.Regex{
 			Pattern: "^" + regexp.QuoteMeta(tag) + "$",

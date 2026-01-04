@@ -23,4 +23,10 @@ export const photosApi = {
 
   deletePhoto: (id: string) =>
     api.delete<any, { message: string }>(`/photos/${id}`),
+
+  generateAITags: (id: string) =>
+    api.post<any, Photo>(`/photos/${id}/ai-tags`),
+
+  editPhoto: (id: string, data: any) =>
+    api.post<any, Photo>(`/photos/${id}/edit`, data),
 }

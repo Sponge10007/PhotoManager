@@ -86,6 +86,8 @@ func main() {
 			photos.GET("/:id", photoController.GetByID)
 			photos.PUT("/:id", photoController.Update)
 			photos.DELETE("/:id", photoController.Delete)
+			photos.POST("/:id/ai-tags", photoController.GenerateAITags)
+			photos.POST("/:id/edit", photoController.Edit)
 		}
 	}
 

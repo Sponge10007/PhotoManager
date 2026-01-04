@@ -43,12 +43,12 @@ export default function HomePage() {
     setPage(1)
   }
 
-  const resetAll = () => {
-    setSearchInput('')
-    setQ('')
-    clearFilters()
-    setFiltersOpen(false)
-  }
+  // const resetAll = () => {
+  //   setSearchInput('')
+  //   setQ('')
+  //   clearFilters()
+  //   setFiltersOpen(false)
+  // }
 
   const handleShowAll = () => {
     setActiveTab('all');
@@ -97,14 +97,14 @@ export default function HomePage() {
     navigate('/login')
   }
 
-  const setRecentUploads = () => {
-    const d = new Date()
-    d.setDate(d.getDate() - 7)
-    setStartDate(d.toISOString().slice(0, 10))
-    setEndDate('')
-    setFiltersOpen(true)
-    setPage(1)
-  }
+  // const setRecentUploads = () => {
+  //   const d = new Date()
+  //   d.setDate(d.getDate() - 7)
+  //   setStartDate(d.toISOString().slice(0, 10))
+  //   setEndDate('')
+  //   setFiltersOpen(true)
+  //   setPage(1)
+  // }
   
   // 处理文件选择
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {

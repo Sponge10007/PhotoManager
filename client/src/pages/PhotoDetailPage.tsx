@@ -1,12 +1,16 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { photosApi } from '@/api/photos'
 import type { Tag as PhotoTag, UpdatePhotoRequest } from '@/types'
+import ReactCrop, { type Crop, type PixelCrop } from 'react-image-crop'
+import 'react-image-crop/dist/ReactCrop.css'
 import {
   ChevronLeft, Calendar, Camera, Cpu,
   MapPin, Tag, Trash2, Edit3, Download,
-  Info, Maximize2, Clock, Layers
+  Info, Maximize2, Clock, Layers, 
+  SlidersHorizontal,
+  Sparkles,            
 } from 'lucide-react'
 
 export default function PhotoDetailPage() {
@@ -25,6 +29,12 @@ export default function PhotoDetailPage() {
   const [draftDescription, setDraftDescription] = useState('')
   const [draftTags, setDraftTags] = useState<PhotoTag[]>([])
   const [newTag, setNewTag] = useState('')
+  const [isImageEditing, setIsImageEditing] = useState(false)
+  const [filters, setFilters] = useState({ brightness: 0, contrast: 0, saturation: 0 })
+  const [cropEnabled, setCropEnabled] = useState(true)
+  const [crop, setCrop] = useState<Crop>({ unit: '%', x: 0, y: 0, width: 100, height: 100 })
+  const [completedCrop, setCompletedCrop] = useState<PixelCrop | null>(null)
+  const imageRef = useRef<HTMLImageElement | null>(null)
 
   const updateMutation = useMutation({
     mutationFn: (data: UpdatePhotoRequest) => photosApi.updatePhoto(id!, data),
@@ -51,10 +61,75 @@ export default function PhotoDetailPage() {
     },
   })
 
+  const aiTagsMutation = useMutation({
+    mutationFn: () => photosApi.generateAITags(id!),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['photo', id] })
+      queryClient.invalidateQueries({ queryKey: ['photos'] })
+      alert('AI 标签已更新')
+    },
+    onError: (error: any) => {
+      alert(error.response?.data?.error || 'AI 标签生成失败，请重试')
+    },
+  })
+
   // 处理删除
   const handleDelete = () => {
     if (window.confirm('确定要删除这张图片吗？此操作无法撤销！')) {
       deleteMutation.mutate()
+    }
+  }
+
+  // 处理编辑保存
+  const saveImageEdit = async () => {
+    try {
+      const cropPayload = (() => {
+        if (!cropEnabled || !imageRef.current) {
+          return { cropX: 0, cropY: 0, cropW: 0, cropH: 0 }
+        }
+
+        const image = imageRef.current
+        const rect = image.getBoundingClientRect()
+        if (!rect.width || !rect.height || !image.naturalWidth || !image.naturalHeight) {
+          return { cropX: 0, cropY: 0, cropW: 0, cropH: 0 }
+        }
+
+        const scaleX = image.naturalWidth / rect.width
+        const scaleY = image.naturalHeight / rect.height
+
+        const pixelCrop: PixelCrop | null =
+          completedCrop ?? ({
+            unit: 'px',
+            x: ((crop.x ?? 0) / 100) * rect.width,
+            y: ((crop.y ?? 0) / 100) * rect.height,
+            width: ((crop.width ?? 0) / 100) * rect.width,
+            height: ((crop.height ?? 0) / 100) * rect.height,
+          } as PixelCrop)
+
+        if (!pixelCrop.width || !pixelCrop.height) {
+          return { cropX: 0, cropY: 0, cropW: 0, cropH: 0 }
+        }
+
+        return {
+          cropX: Math.round(pixelCrop.x * scaleX),
+          cropY: Math.round(pixelCrop.y * scaleY),
+          cropW: Math.round(pixelCrop.width * scaleX),
+          cropH: Math.round(pixelCrop.height * scaleY),
+        }
+      })()
+
+      // 修正：只传 id，不传完整路径。注意：后端需要 cropX, cropY 等参数
+      const data = await photosApi.editPhoto(id!, {
+        ...filters,
+        ...cropPayload,
+      })
+      alert('编辑成功，已生成新图片！')
+      
+      // 修正：axios 拦截器通常返回 data 本身，所以使用 data.id
+      navigate(`/photo/${data.id}`) 
+      setIsImageEditing(false)
+    } catch (err: any) {
+      alert(err.response?.data?.error || '编辑失败')
     }
   }
 
@@ -127,11 +202,35 @@ export default function PhotoDetailPage() {
         </button>
 
         <div className="relative group max-w-full max-h-full">
-          <img
-            src={photo.path}
-            alt={photo.title}
-            className="max-w-full max-h-[85vh] object-contain shadow-[0_0_50px_rgba(0,0,0,0.5)] rounded-sm transition-transform duration-500"
-          />
+          {isImageEditing && cropEnabled ? (
+            <ReactCrop
+              crop={crop}
+              onChange={(_, percentCrop) => setCrop(percentCrop)}
+              onComplete={(c) => setCompletedCrop(c)}
+              keepSelection
+              ruleOfThirds
+            >
+              <img
+                ref={imageRef}
+                src={photo.path}
+                alt={photo.title}
+                style={{
+                  filter: `brightness(${100 + filters.brightness}%) contrast(${100 + filters.contrast}%) saturate(${100 + filters.saturation}%)`,
+                }}
+                className="max-w-full max-h-[85vh] object-contain shadow-[0_0_50px_rgba(0,0,0,0.5)] rounded-sm"
+              />
+            </ReactCrop>
+          ) : (
+            <img
+              ref={imageRef}
+              src={photo.path}
+              alt={photo.title}
+              style={{
+                filter: `brightness(${100 + filters.brightness}%) contrast(${100 + filters.contrast}%) saturate(${100 + filters.saturation}%)`,
+              }}
+              className="max-w-full max-h-[85vh] object-contain shadow-[0_0_50px_rgba(0,0,0,0.5)] rounded-sm transition-transform duration-500"
+            />
+          )}
           <button className="absolute bottom-4 right-4 p-3 bg-black/50 hover:bg-black/80 backdrop-blur-md rounded-xl opacity-0 group-hover:opacity-100 transition-opacity">
             <Maximize2 size={20} />
           </button>
@@ -143,47 +242,85 @@ export default function PhotoDetailPage() {
         <div className="p-8 space-y-8">
           {/* 基本信息 */}
           <section>
-            <div className="flex justify-between items-start mb-4">
+            <div className="mb-4">
               {isEditing ? (
                 <input
                   value={draftTitle}
                   onChange={(e) => setDraftTitle(e.target.value)}
-                  className="w-full mr-3 text-2xl font-black tracking-tight text-foreground bg-transparent border-b border-border/50 focus:outline-none focus:border-primary"
+                  className="w-full text-2xl font-black tracking-tight text-foreground bg-transparent border-b border-border/50 focus:outline-none focus:border-primary"
                   placeholder="标题"
                 />
               ) : (
-                <h2 className="text-2xl font-black tracking-tight text-foreground">{photo.title || '未命名图片'}</h2>
+                <h2 className="text-2xl font-black tracking-tight text-foreground break-words">
+                  {photo.title || '未命名图片'}
+                </h2>
               )}
-              <div className="flex gap-2">
+
+              {/* 操作栏：与标题分行，避免拥挤 */}
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                {!isEditing && !isImageEditing && (
+                  <button
+                    onClick={() => {
+                      setIsImageEditing(true)
+                      setFilters({ brightness: 0, contrast: 0, saturation: 0 })
+                      setCropEnabled(true)
+                      setCrop({ unit: '%', x: 0, y: 0, width: 100, height: 100 })
+                      setCompletedCrop(null)
+                    }}
+                    className="inline-flex items-center gap-2 rounded-xl border border-border bg-secondary/30 px-3 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-secondary/50"
+                    title="编辑图片色调"
+                  >
+                    <SlidersHorizontal size={18} strokeWidth={2.25} />
+                    <span>编辑色调</span>
+                  </button>
+                )}
+
+                {!isEditing && !isImageEditing && (
+                  <button
+                    onClick={() => aiTagsMutation.mutate()}
+                    disabled={aiTagsMutation.isPending}
+                    className="inline-flex items-center gap-2 rounded-xl border border-primary/20 bg-primary/10 px-3 py-2 text-sm font-semibold text-primary transition-colors hover:bg-primary/15 disabled:opacity-50"
+                    title="AI 生成标签"
+                  >
+                    <Sparkles size={18} strokeWidth={2.25} />
+                    <span>AI 生成标签</span>
+                  </button>
+                )}
+                
                 {isEditing ? (
                   <>
                     <button
                       onClick={saveEdits}
                       disabled={updateMutation.isPending}
-                      className="px-3 py-2 bg-primary text-primary-foreground rounded-lg text-xs font-bold disabled:opacity-50"
+                      className="px-3 py-2 bg-primary text-primary-foreground rounded-xl text-xs font-bold disabled:opacity-50"
                     >
                       保存
                     </button>
                     <button
                       onClick={() => setIsEditing(false)}
-                      className="px-3 py-2 hover:bg-secondary rounded-lg text-xs font-bold text-muted-foreground"
+                      className="px-3 py-2 hover:bg-secondary rounded-xl text-xs font-bold text-muted-foreground"
                     >
                       取消
                     </button>
                   </>
                 ) : (
+                  /* 编辑按钮更名为“添加描述” */
                   <button
                     onClick={beginEdit}
-                    className="p-2 hover:bg-secondary rounded-lg transition-colors text-muted-foreground hover:text-foreground"
+                    className="inline-flex items-center gap-2 rounded-xl border border-border bg-secondary/30 px-3 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-secondary/50"
+                    title="修改标题与描述"
                   >
-                    <Edit3 size={18} />
+                    <Edit3 size={18} strokeWidth={2.25} />
+                    <span>添加描述</span>
                   </button>
                 )}
+                
                 <button onClick={handleDelete}
                         disabled={deleteMutation.isPending}
-                        className="p-2 hover:bg-destructive/10 rounded-lg transition-colors text-muted-foreground hover:text-destructive disabled:opacity-50"
+                        className="ml-auto inline-flex items-center gap-2 rounded-xl border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm font-semibold text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-50"
                       >
-                  <Trash2 size={18} />
+                  <Trash2 size={18} strokeWidth={2.25} />
+                  <span>删除</span>
                 </button>
               </div>
             </div>
@@ -297,6 +434,108 @@ export default function PhotoDetailPage() {
                 {photo.exif.takenAt && (
                   <ExifRow icon={<Calendar size={16} />} label="拍摄日期" value={new Date(photo.exif.takenAt).toLocaleString()} />
                 )}
+              </div>
+            </section>
+          )}
+
+          {isImageEditing && (
+            <section className="bg-secondary/30 rounded-3xl p-6 border border-primary/20 space-y-4 animate-in fade-in slide-in-from-bottom-4">
+              <h3 className="flex items-center gap-2 text-sm font-bold uppercase tracking-widest text-primary mb-2">
+                <Cpu size={16} /> 色调调节
+              </h3>
+              
+              <div className="flex items-center justify-between">
+                <div className="text-xs font-bold uppercase tracking-widest text-muted-foreground">裁剪</div>
+                <button
+                  type="button"
+                  onClick={() => setCropEnabled((v) => !v)}
+                  className="px-3 py-1.5 bg-secondary rounded-xl text-xs font-bold hover:opacity-90"
+                >
+                  {cropEnabled ? '关闭裁剪' : '启用裁剪'}
+                </button>
+              </div>
+              {cropEnabled && (
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>在左侧图片上拖拽选择裁剪区域</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCrop({ unit: '%', x: 0, y: 0, width: 100, height: 100 })
+                      setCompletedCrop(null)
+                    }}
+                    className="px-3 py-1.5 bg-secondary rounded-xl text-xs font-bold hover:opacity-90"
+                  >
+                    重置
+                  </button>
+                </div>
+              )}
+
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <div className="flex justify-between text-xs font-medium">
+                    <label>亮度</label>
+                    <span className={filters.brightness >= 0 ? "text-primary" : "text-destructive"}>
+                      {filters.brightness > 0 ? `+${filters.brightness}` : filters.brightness}
+                    </span>
+                  </div>
+                  <input 
+                    type="range" min="-50" max="50" step="1"
+                    value={filters.brightness}
+                    onChange={(e) => setFilters({ ...filters, brightness: parseInt(e.target.value) })}
+                    className="w-full h-1.5 bg-background rounded-lg appearance-none cursor-pointer accent-primary"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex justify-between text-xs font-medium">
+                    <label>对比度</label>
+                    <span className={filters.contrast >= 0 ? "text-primary" : "text-destructive"}>
+                      {filters.contrast > 0 ? `+${filters.contrast}` : filters.contrast}
+                    </span>
+                  </div>
+                  <input 
+                    type="range" min="-50" max="50" step="1"
+                    value={filters.contrast}
+                    onChange={(e) => setFilters({ ...filters, contrast: parseInt(e.target.value) })}
+                    className="w-full h-1.5 bg-background rounded-lg appearance-none cursor-pointer accent-primary"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex justify-between text-xs font-medium">
+                    <label>饱和度</label>
+                    <span className={filters.saturation >= 0 ? "text-primary" : "text-destructive"}>
+                      {filters.saturation > 0 ? `+${filters.saturation}` : filters.saturation}
+                    </span>
+                  </div>
+                  <input 
+                    type="range" min="-50" max="50" step="1"
+                    value={filters.saturation}
+                    onChange={(e) => setFilters({ ...filters, saturation: parseInt(e.target.value) })}
+                    className="w-full h-1.5 bg-background rounded-lg appearance-none cursor-pointer accent-primary"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  onClick={saveImageEdit}
+                  className="flex-1 py-2 bg-primary text-primary-foreground rounded-xl text-xs font-bold hover:opacity-90"
+                >
+                  应用并另存
+                </button>
+                <button
+                  onClick={() => {
+                    setIsImageEditing(false);
+                    setFilters({ brightness: 0, contrast: 0, saturation: 0 }); // 重置
+                    setCropEnabled(true)
+                    setCrop({ unit: '%', x: 0, y: 0, width: 100, height: 100 })
+                    setCompletedCrop(null)
+                  }}
+                  className="px-4 py-2 bg-secondary rounded-xl text-xs font-bold"
+                >
+                  取消
+                </button>
               </div>
             </section>
           )}
