@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -133,31 +132,30 @@ func connectMongo(uri string) (*mongo.Client, error) {
 }
 
 func (s *mcpServer) serve(in io.Reader, out io.Writer) error {
-	reader := bufio.NewReader(in)
-	writer := bufio.NewWriter(out)
-	defer writer.Flush()
-
+	// 使用 Decoder 直接从标准输入读取 JSON 流，不再依赖 Content-Length
+	dec := json.NewDecoder(in)
 	for {
-		payload, err := readFramedJSON(reader)
-		if err != nil {
+		var req rpcRequest
+		if err := dec.Decode(&req); err != nil {
+			if err == io.EOF {
+				return nil
+			}
 			return err
 		}
 
-		var req rpcRequest
-		if err := json.Unmarshal(payload, &req); err != nil {
-			// Can't respond without an ID; ignore.
-			continue
-		}
-
+		// 处理通知
 		if isNotification(req.ID) {
 			s.handleNotification(req)
 			continue
 		}
 
+		// 在此处定义 resp 变量，调用 handleRequest 处理请求
 		resp := s.handleRequest(req)
+
+		// 将响应序列化
 		respBytes, err := json.Marshal(resp)
 		if err != nil {
-			// Best-effort: send a generic error.
+			// 发生序列化错误时的兜底逻辑
 			resp = rpcResponse{
 				JSONRPC: "2.0",
 				ID:      req.ID,
@@ -166,7 +164,8 @@ func (s *mcpServer) serve(in io.Reader, out io.Writer) error {
 			respBytes, _ = json.Marshal(resp)
 		}
 
-		if err := writeFramedJSON(writer, respBytes); err != nil {
+		// 使用 fmt.Fprintln 直接写回响应，符合标准的 stdio MCP 协议
+		if _, err := fmt.Fprintln(out, string(respBytes)); err != nil {
 			return err
 		}
 	}
@@ -505,53 +504,6 @@ func toolErrorResponse(id json.RawMessage, message string) rpcResponse {
 			},
 		},
 	}
-}
-
-func readFramedJSON(r *bufio.Reader) ([]byte, error) {
-	contentLength := -1
-	for {
-		line, err := r.ReadString('\n')
-		if err != nil {
-			return nil, err
-		}
-		line = strings.TrimRight(line, "\r\n")
-		if line == "" {
-			break
-		}
-		k, v, ok := strings.Cut(line, ":")
-		if !ok {
-			continue
-		}
-		if strings.EqualFold(strings.TrimSpace(k), "Content-Length") {
-			n, err := strconv.Atoi(strings.TrimSpace(v))
-			if err != nil {
-				return nil, fmt.Errorf("invalid Content-Length: %w", err)
-			}
-			contentLength = n
-		}
-	}
-	if contentLength < 0 {
-		return nil, fmt.Errorf("missing Content-Length header")
-	}
-	if contentLength == 0 {
-		return []byte("{}"), nil
-	}
-
-	buf := make([]byte, contentLength)
-	if _, err := io.ReadFull(r, buf); err != nil {
-		return nil, err
-	}
-	return buf, nil
-}
-
-func writeFramedJSON(w *bufio.Writer, payload []byte) error {
-	if _, err := fmt.Fprintf(w, "Content-Length: %d\r\n\r\n", len(payload)); err != nil {
-		return err
-	}
-	if _, err := w.Write(payload); err != nil {
-		return err
-	}
-	return w.Flush()
 }
 
 func isNotification(id json.RawMessage) bool {
